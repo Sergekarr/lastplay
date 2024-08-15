@@ -1,2 +1,1 @@
 # lastplaylist
-fucking hell
