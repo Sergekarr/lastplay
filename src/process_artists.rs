@@ -108,12 +108,20 @@ impl ArtistProcessor {
         artist_name: &str,
         playcount: u64,
         seed: &str,
+        is_new: bool,
     ) -> Result<(), Box<dyn Error>> {
         let conn = self.pool.get()?;
-        conn.execute(
-            "INSERT OR REPLACE INTO artists (name, playcount, seed) VALUES (?1, ?2, ?3)",
-            params![artist_name, playcount, seed],
-        )?;
+        if is_new {
+            conn.execute(
+                "INSERT INTO artists (name, playcount, seed) VALUES (?1, ?2, ?3)",
+                params![artist_name, playcount, seed],
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE artists SET playcount = ?2 WHERE name = ?1",
+                params![artist_name, playcount],
+            )?;
+        }
         Ok(())
     }
 
@@ -126,24 +134,25 @@ impl ArtistProcessor {
                 let existing_playcount = existing_artists.get(name).cloned();
 
                 if existing_playcount.map_or(true, |count| playcount != count) {
-                    let seed = if let Some(existing_seed) = existing_artists.get(name) {
-                        existing_seed.to_string()
-                    } else {
+                    let is_new = existing_playcount.is_none();
+                    let seed = if is_new {
                         Self::get_seed(name).await?
+                    } else {
+                        String::new() // We don't need the seed for updates
                     };
 
-                    self.dbupdate(name, playcount, &seed).await?;
+                    self.dbupdate(name, playcount, &seed, is_new).await?;
                     existing_artists.insert(name.to_string(), playcount);
                     println!(
-                        "{} artist: {} with playcount: {} and seed: {}",
-                        if existing_playcount.is_some() {
-                            "Updated"
-                        } else {
-                            "Added"
-                        },
+                        "{} artist: {} with playcount: {}{}",
+                        if is_new { "Added" } else { "Updated" },
                         name,
                         playcount,
-                        seed
+                        if is_new {
+                            format!(" and seed: {}", seed)
+                        } else {
+                            String::new()
+                        }
                     );
                 }
             } else {
